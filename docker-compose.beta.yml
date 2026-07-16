@@ -1,0 +1,172 @@
+# =================================================================================
+# beta-tools overlay: the incubator's tools composed onto the main mcp-tools stack.
+#
+# This repo is CLONED INSIDE the main checkout at <mcp-tools>/beta/ (gitignored
+# there) -- required, not cosmetic: each image build needs main's ./security in
+# its context, and a build context can't span sibling repos. Relative paths here
+# resolve against THIS file's directory, so `context: ..` is main's repo root.
+#
+# Run as a third file on the SAME compose project (volumes keep their names, so
+# tool state carries over untouched). Pin it in the root .env so every future
+# compose command includes it:
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.tunnel.yml:beta/docker-compose.beta.yml
+#
+# Public posture (auth on, public URLs) is baked in here rather than split into
+# a second overlay: this repo exists for one live deployment. Graduating a tool
+# to main = move its tools/ dir + compose block + allowlist there, restore the
+# 31xx-band egress listener, and drop its ingress route from the override below.
+# =================================================================================
+services:
+  # Extends main's egress wall: the conf.d hook mount is replaced by this repo's
+  # snippet (same container target wins), and the beta allowlists ride alongside
+  # main's at their own path. Restart egress after changing either.
+  egress:
+    volumes:
+      - ./egress/beta.conf:/etc/squid/conf.d/local.conf:ro
+      - ./egress/allowlist:/etc/squid/allowlist-beta:ro
+
+  # xmcp screens untrusted output, so the guardrail must also start with it
+  # (profiles lists merge across compose files).
+  guardrail:
+    profiles: ["xmcp"]
+
+  # This tool screens its output through the guardrail (untrusted external content).
+  xmcp:
+    build:
+      context: ..   # main repo root, so the image can COPY the shared ./security package
+      dockerfile: beta/tools/xmcp/Dockerfile
+    image: mcp-xmcp
+    profiles: ["xmcp"]
+    restart: unless-stopped
+    env_file:
+      - path: tools/xmcp/.env
+        required: false
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_TRANSPORT: http
+      MCP_AUTH_ENABLED: "1"
+      MCP_REQUIRE_APPROVAL: ${MCP_REQUIRE_APPROVAL:-1}
+      MCP_UNTRUSTED_OUTPUT: "1"
+      MCP_PUBLIC_URL: https://xmcp.${MCP_DOMAIN}
+      GUARDRAIL_URL: http://guardrail:8071
+      GUARDRAIL_ENABLED: ${GUARDRAIL_ENABLED:-1}
+      APPROVAL_URL: http://approval:8072
+      HTTPS_PROXY: http://egress:3150
+      HTTP_PROXY: http://egress:3150
+      NO_PROXY: guardrail,approval,localhost,127.0.0.1
+    volumes:
+      - xmcp-state:/app/state
+    networks:
+      - internal
+
+  # Trusted tools: same shape, no guardrail leg (see main's compose for the
+  # full commentary on the substrate wiring).
+  data:
+    build:
+      context: ..
+      dockerfile: beta/tools/data/Dockerfile
+    image: mcp-data
+    profiles: ["data"]
+    restart: unless-stopped
+    env_file:
+      - path: tools/data/.env
+        required: false
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_TRANSPORT: http
+      MCP_AUTH_ENABLED: "1"
+      MCP_REQUIRE_APPROVAL: ${MCP_REQUIRE_APPROVAL:-1}
+      MCP_PUBLIC_URL: https://data.${MCP_DOMAIN}
+      APPROVAL_URL: http://approval:8072
+      HTTPS_PROXY: http://egress:3151
+      HTTP_PROXY: http://egress:3151
+      NO_PROXY: approval,localhost,127.0.0.1
+      # Where lean-export writes Lean-format files (the volume shared with lean).
+      LEAN_DATA_ROOT: /lean-data
+    volumes:
+      - data-state:/app/state
+      - lean-data:/lean-data
+    networks:
+      - internal
+
+  lean:
+    build:
+      context: ..
+      dockerfile: beta/tools/lean/Dockerfile
+    image: mcp-lean
+    profiles: ["lean"]
+    restart: unless-stopped
+    env_file:
+      - path: tools/lean/.env
+        required: false
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_TRANSPORT: http
+      MCP_AUTH_ENABLED: "1"
+      MCP_REQUIRE_APPROVAL: ${MCP_REQUIRE_APPROVAL:-1}
+      MCP_PUBLIC_URL: https://lean.${MCP_DOMAIN}
+      APPROVAL_URL: http://approval:8072
+      HTTPS_PROXY: http://egress:3152
+      HTTP_PROXY: http://egress:3152
+      NO_PROXY: approval,localhost,127.0.0.1
+      # The engine backtests ONLY pipeline data (the volume the data tool exports
+      # into) -- never the image's bundled samples.
+      LEAN_DATA_FOLDER: /lean-data
+    volumes:
+      - lean-state:/app/state
+      - lean-data:/lean-data
+    networks:
+      - internal
+
+# Ingress: compose REPLACES config content on override (no merge), so this is the
+# full route list -- main's routes verbatim plus the three beta hostnames. The one
+# accepted duplication in the split: if main's routes change, update this copy
+# (drift fails visibly as a 502 on the affected subdomain).
+configs:
+  cloudflared-config:
+    content: |
+      tunnel: ${TUNNEL_ID:?set TUNNEL_ID in the root .env (cp env.example .env)}
+      credentials-file: /etc/cloudflared/creds.json
+
+      # Each MCP server does its OWN Google OAuth (no Cloudflare Access policy here).
+      ingress:
+        - hostname: xmcp.${MCP_DOMAIN:?set MCP_DOMAIN in the root .env (cp env.example .env)}
+          service: http://xmcp:8061
+        - hostname: data.${MCP_DOMAIN}
+          service: http://data:8062
+        - hostname: lean.${MCP_DOMAIN}
+          service: http://lean:8064
+        - hostname: telegram.${MCP_DOMAIN}
+          service: http://telegram:8063
+        - hostname: gatekeeper.${MCP_DOMAIN}
+          service: http://gatekeeper:8065
+        - hostname: workspace.${MCP_DOMAIN}
+          service: http://workspace:8066
+        # browser-view BEFORE browser: the stack validator keys routes by service
+        # name and reads the LAST match as the tool's MCP endpoint.
+        - hostname: browser-view.${MCP_DOMAIN}
+          service: http://browser:6080
+        - hostname: browser.${MCP_DOMAIN}
+          service: http://browser:8067
+        # The approval sidecar's human-facing paths only (tokens are the credential).
+        - hostname: approval.${MCP_DOMAIN}
+          path: ^/(approve|manage)/.+
+          service: http://approval:8072
+        - hostname: approval.${MCP_DOMAIN}
+          path: ^/(slack|discord|telegram)/interact$
+          service: http://approval:8072
+
+        # Everything else is refused.
+        - service: http_status:404
+
+# Same names as the volumes these tools used when they lived in main; same compose
+# project => same underlying volumes, so state (the lake, backtests, OAuth) carries
+# over with no migration. lean-data is the artifact plane between data (writer:
+# lean-export) and lean (reader: the engine), shared via the 'leandata' group both
+# Dockerfiles create.
+volumes:
+  xmcp-state:
+  data-state:
+  lean-state:
+  lean-data:

@@ -1,0 +1,6 @@
+# Secrets live in each tool's .env (copied from its env.example), never in git.
+.env
+tools/*/.env
+
+__pycache__/
+*.pyc
