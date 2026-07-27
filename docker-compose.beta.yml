@@ -51,6 +51,7 @@ services:
       MCP_REQUIRE_APPROVAL: ${MCP_REQUIRE_APPROVAL:-1}
       MCP_UNTRUSTED_OUTPUT: "1"
       MCP_PUBLIC_URL: https://xmcp.${MCP_DOMAIN}
+      APPROVAL_PUBLIC_URL: https://approval.${MCP_DOMAIN}
       GUARDRAIL_URL: http://guardrail:8071
       GUARDRAIL_ENABLED: ${GUARDRAIL_ENABLED:-1}
       APPROVAL_URL: http://approval:8072
@@ -80,6 +81,7 @@ services:
       MCP_AUTH_ENABLED: "1"
       MCP_REQUIRE_APPROVAL: ${MCP_REQUIRE_APPROVAL:-1}
       MCP_PUBLIC_URL: https://data.${MCP_DOMAIN}
+      APPROVAL_PUBLIC_URL: https://approval.${MCP_DOMAIN}
       APPROVAL_URL: http://approval:8072
       HTTPS_PROXY: http://egress:3151
       HTTP_PROXY: http://egress:3151
@@ -108,6 +110,7 @@ services:
       MCP_AUTH_ENABLED: "1"
       MCP_REQUIRE_APPROVAL: ${MCP_REQUIRE_APPROVAL:-1}
       MCP_PUBLIC_URL: https://lean.${MCP_DOMAIN}
+      APPROVAL_PUBLIC_URL: https://approval.${MCP_DOMAIN}
       APPROVAL_URL: http://approval:8072
       HTTPS_PROXY: http://egress:3152
       HTTP_PROXY: http://egress:3152
