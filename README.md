@@ -13,6 +13,7 @@ main's CI. Loose by design: no CI here.
 | `xmcp` | The full X API surface — reads, and OAuth1 user-context writes acting as your account | [xdevplatform/xmcp](https://github.com/xdevplatform/xmcp) |
 | `data` | Crypto market data into a local parquet lake, exportable to the backtester | [OpenBB](https://openbb.co) (Tiingo provider) |
 | `lean` | Self-hosted backtests of agent-authored algorithms over the lake's data | [QuantConnect Lean](https://github.com/QuantConnect/Lean), pinned engine image |
+| `inbox-zero` | Always-on Gmail rules engine (Pub/Sub push) run on the Claude subscription; its own `/mcp` + OAuth, not a substrate tool | [elie222/inbox-zero](https://github.com/elie222/inbox-zero), upstream image + the `claude-code` provider |
 
 ## Running
 
